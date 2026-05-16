@@ -1,0 +1,620 @@
+import React, { useState, useEffect, useRef } from 'react';
+import { Send, Book, Bell, Settings, User, LogOut, ChevronRight, Zap, GraduationCap, X, BarChart3, Clock, AlertTriangle, Info, TrendingUp, Users } from 'lucide-react';
+import { motion, AnimatePresence } from 'motion/react';
+import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar, Legend } from 'recharts';
+
+type Message = {
+  id: string;
+  text: string;
+  sender: 'user' | 'bot';
+  timestamp: Date;
+};
+
+type Notification = {
+  id: string;
+  title: string;
+  message: string;
+  time: string;
+  read: boolean;
+  type: 'urgent' | 'routine';
+};
+
+export default function App() {
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [user, setUser] = useState<{name: string, email: string, role: string} | null>(null);
+
+  if (!isAuthenticated) {
+    return <AuthPage onLogin={(userData) => {
+      setUser(userData);
+      setIsAuthenticated(true);
+    }} />;
+  }
+
+  return <MainLayout user={user} onLogout={() => setIsAuthenticated(false)} />;
+}
+
+// ----------------------------------------------------------------------
+// Auth Page (Cyberpunk / iOS mixed theme)
+// ----------------------------------------------------------------------
+function AuthPage({ onLogin }: { onLogin: (user: any) => void }) {
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
+
+  const handleLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsLoading(true);
+    try {
+      const res = await fetch('/api/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        // Mocking staff vs student based on email
+        const role = email.includes('staff') ? 'staff' : 'student';
+        onLogin({ ...data.user, role });
+      } else {
+        alert('Login failed. Use any email and password for this demo.');
+      }
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  return (
+    <div className="min-h-screen bg-gray-950 text-gray-100 flex items-center justify-center p-4 selection:bg-cyan-500/30">
+      <div className="absolute inset-0 overflow-hidden pointer-events-none">
+        <div className="absolute -top-1/2 -left-1/2 w-full h-full bg-cyan-900/10 blur-[120px] rounded-full"></div>
+        <div className="absolute top-1/2 left-1/2 w-full h-full bg-emerald-900/10 blur-[120px] rounded-full"></div>
+      </div>
+      
+      <motion.div 
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.5 }}
+        className="w-full max-w-md relative"
+      >
+        <div className="bg-gray-900/50 backdrop-blur-xl rounded-3xl border border-gray-800 p-8 shadow-2xl">
+          <div className="flex justify-center mb-8">
+            <div className="w-16 h-16 bg-gradient-to-br from-cyan-400 to-emerald-400 rounded-2xl flex items-center justify-center shadow-lg shadow-cyan-500/20">
+              <GraduationCap className="text-gray-950 w-8 h-8" />
+            </div>
+          </div>
+          
+          <h1 className="text-2xl font-bold text-center mb-2">Student Portal</h1>
+          <p className="text-gray-400 text-center text-sm mb-8">Sign in to access your AI Assistant</p>
+
+          <form onSubmit={handleLogin} className="space-y-4">
+            <div>
+              <label className="block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1">Email / Student ID</label>
+              <input 
+                type="email" 
+                required
+                value={email}
+                onChange={e => setEmail(e.target.value)}
+                className="w-full bg-gray-950/50 border border-gray-800 rounded-xl px-4 py-3 placeholder-gray-600 focus:outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500 transition-all font-mono text-sm"
+                placeholder="student@university.edu (or staff@)"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1">Password</label>
+              <input 
+                type="password" 
+                required
+                value={password}
+                onChange={e => setPassword(e.target.value)}
+                className="w-full bg-gray-950/50 border border-gray-800 rounded-xl px-4 py-3 placeholder-gray-600 focus:outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500 transition-all font-mono text-sm"
+                placeholder="••••••••"
+              />
+            </div>
+            
+            <button 
+              type="submit" 
+              disabled={isLoading}
+              className="w-full mt-4 bg-gradient-to-r from-cyan-500 to-emerald-500 text-gray-950 font-semibold rounded-xl px-4 py-3 hover:opacity-90 active:scale-[0.98] transition-all flex justify-center items-center gap-2"
+            >
+              {isLoading ? 'Authenticating...' : 'Secure Login'}
+              {!isLoading && <ChevronRight className="w-5 h-5" />}
+            </button>
+          </form>
+
+          <div className="mt-6 text-center">
+            <a href="#" className="text-xs text-cyan-500 hover:text-cyan-400 font-medium transition-colors">Forgot Password?</a>
+          </div>
+        </div>
+      </motion.div>
+    </div>
+  );
+}
+
+// ----------------------------------------------------------------------
+// Main Application Layout
+// ----------------------------------------------------------------------
+function MainLayout({ user, onLogout }: { user: any, onLogout: () => void }) {
+  const [showNotifications, setShowNotifications] = useState(false);
+  const [currentView, setCurrentView] = useState<'chat' | 'analytics'>('chat');
+
+  const chatHistory = [
+    { id: '1', title: 'Calculus Review', time: 'Yesterday' },
+    { id: '2', title: 'Python WebSockets', time: 'Mon, 10:30 AM' },
+    { id: '3', title: 'Biology Midterm Qs', time: 'Last Week' },
+  ];
+
+  return (
+    <div className="h-screen flex bg-gray-950 text-gray-100 overflow-hidden selection:bg-cyan-500/30 font-sans">
+      {/* Sidebar (Desktop) */}
+      <aside className="w-20 lg:w-72 border-r border-gray-800/60 bg-gray-950/50 flex flex-col items-center lg:items-stretch py-6 backdrop-blur-md z-10 transition-all duration-300">
+        <div className="flex items-center justify-center lg:justify-start lg:px-6 mb-8 gap-3">
+          <div className="w-10 h-10 bg-gradient-to-br from-cyan-400 to-emerald-400 rounded-xl flex items-center justify-center shrink-0 shadow-lg shadow-emerald-500/10">
+            <GraduationCap className="text-gray-950 w-5 h-5" />
+          </div>
+          <span className="hidden lg:block font-bold text-lg tracking-tight">Neuro</span>
+        </div>
+
+        <nav className="flex flex-col gap-1 px-3 lg:px-4">
+          <NavItem icon={<Book />} label="AI Chat" active={currentView === 'chat'} onClick={() => setCurrentView('chat')} />
+          {user?.role === 'staff' && (
+            <NavItem icon={<BarChart3 />} label="Analytics (Staff)" active={currentView === 'analytics'} onClick={() => setCurrentView('analytics')} />
+          )}
+          <NavItem icon={<Zap />} label="Study Plan" />
+        </nav>
+
+        {/* Chat History Section */}
+        <div className="hidden lg:block mt-8 flex-1 overflow-y-auto px-4">
+          <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-widest mb-3 px-2 flex items-center gap-2">
+            <Clock className="w-3.5 h-3.5" /> Recent Sessions
+          </h3>
+          <ul className="space-y-1">
+            {chatHistory.map(session => (
+              <li key={session.id}>
+                <button className="w-full text-left px-3 py-2 rounded-lg hover:bg-gray-900 text-sm text-gray-400 hover:text-gray-200 transition-colors flex items-center justify-between group">
+                  <span className="truncate pr-2">{session.title}</span>
+                  <span className="text-[10px] text-gray-600 opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap">{session.time}</span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
+
+        <div className="mt-auto px-3 lg:px-4 pt-4 border-t border-gray-800/60 hidden lg:block">
+          <div className="flex items-center gap-3 px-3 py-2 mb-2">
+            <div className="w-8 h-8 rounded-full bg-gray-800 flex items-center justify-center text-cyan-500 shrink-0 capitalize">
+              {user?.name?.[0] || 'U'}
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-medium text-gray-200 truncate">{user?.email}</p>
+              <p className="text-[10px] text-gray-500 uppercase tracking-wider">{user?.role}</p>
+            </div>
+          </div>
+          <button 
+            onClick={onLogout}
+            className="w-full flex items-center justify-start gap-3 p-3 text-gray-400 hover:text-red-400 hover:bg-red-900/10 rounded-xl transition-all group"
+          >
+            <LogOut className="w-4 h-4 group-hover:-translate-x-1 transition-transform" />
+            <span className="font-medium text-sm">Logout</span>
+          </button>
+        </div>
+        
+        {/* Mobile logout */}
+        <div className="mt-auto px-3 lg:hidden">
+          <button 
+            onClick={onLogout}
+            className="w-full flex items-center justify-center p-3 text-gray-400 hover:text-red-400 hover:bg-gray-900 rounded-xl transition-all"
+          >
+            <LogOut className="w-5 h-5" />
+          </button>
+        </div>
+      </aside>
+
+      {/* Main Content Area */}
+      <main className="flex-1 flex flex-col relative h-full min-w-0">
+        {/* Header */}
+        <header className="h-16 border-b border-gray-800/60 bg-gray-950/50 backdrop-blur-xl flex items-center justify-between px-6 z-20 sticky top-0">
+          <div className="flex items-center gap-3">
+            <h2 className="font-semibold text-lg hover:text-cyan-400 transition-colors cursor-pointer">
+              {currentView === 'chat' ? 'CS-101 Assistant' : 'Platform Analytics'}
+            </h2>
+            {currentView === 'chat' && (
+              <span className="hidden sm:flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-500/10 text-emerald-400 text-xs font-mono border border-emerald-500/20">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                Online
+              </span>
+            )}
+          </div>
+          
+          <button 
+            onClick={() => setShowNotifications(!showNotifications)}
+            className="relative p-2 text-gray-400 hover:text-white hover:bg-gray-800 rounded-full transition-colors"
+          >
+            <Bell className="w-5 h-5" />
+            <span className="absolute top-1 right-1.5 w-2 h-2 rounded-full bg-cyan-500 shadow-[0_0_8px_rgba(6,182,212,0.8)] animate-pulse"></span>
+          </button>
+        </header>
+
+        {currentView === 'chat' ? <ChatWindow /> : <AnalyticsDashboard />}
+
+        {/* Notifications Panel */}
+        <AnimatePresence>
+          {showNotifications && <NotificationsPanel onClose={() => setShowNotifications(false)} />}
+        </AnimatePresence>
+      </main>
+    </div>
+  );
+}
+
+function NavItem({ icon, label, active = false, onClick }: { icon: React.ReactNode, label: string, active?: boolean, onClick?: () => void }) {
+  return (
+    <button 
+      onClick={onClick}
+      className={`flex items-center justify-center lg:justify-start gap-3 p-3 rounded-xl transition-all w-full ${
+        active 
+          ? 'bg-gradient-to-r from-gray-800 to-gray-900 border border-gray-700 text-cyan-400 shadow-sm' 
+          : 'text-gray-400 hover:text-gray-200 hover:bg-gray-900 border border-transparent'
+      }`}
+    >
+      {React.cloneElement(icon as React.ReactElement, { className: 'w-5 h-5' })}
+      <span className="hidden lg:block font-medium text-sm">{label}</span>
+    </button>
+  );
+}
+
+// ----------------------------------------------------------------------
+// Analytics Dashboard (Staff View)
+// ----------------------------------------------------------------------
+function AnalyticsDashboard() {
+  const engagementData = [
+    { name: 'Mon', questions: 400, activeStudents: 240 },
+    { name: 'Tue', questions: 300, activeStudents: 139 },
+    { name: 'Wed', questions: 550, activeStudents: 400 },
+    { name: 'Thu', questions: 278, activeStudents: 208 },
+    { name: 'Fri', questions: 189, activeStudents: 100 },
+    { name: 'Sat', questions: 239, activeStudents: 150 },
+    { name: 'Sun', questions: 349, activeStudents: 220 },
+  ];
+
+  const topicsData = [
+    { name: 'Calculus', queries: 850 },
+    { name: 'Python Basics', queries: 720 },
+    { name: 'Data Structures', queries: 900 },
+    { name: 'Biology', queries: 400 },
+  ];
+
+  return (
+    <div className="flex-1 overflow-y-auto p-6 md:p-8 space-y-6">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <div className="bg-gray-900/50 border border-gray-800 rounded-3xl p-6 shadow-sm">
+          <div className="flex items-center gap-3 text-cyan-400 mb-2">
+            <Users className="w-5 h-5" />
+            <h3 className="font-semibold">Active Students</h3>
+          </div>
+          <p className="text-3xl font-bold">1,204</p>
+          <p className="text-xs text-emerald-400 mt-2 flex items-center gap-1"><TrendingUp className="w-3 h-3"/> +12% from last week</p>
+        </div>
+        <div className="bg-gray-900/50 border border-gray-800 rounded-3xl p-6 shadow-sm">
+          <div className="flex items-center gap-3 text-emerald-400 mb-2">
+            <Book className="w-5 h-5" />
+            <h3 className="font-semibold">Questions Answered</h3>
+          </div>
+          <p className="text-3xl font-bold">8,430</p>
+          <p className="text-xs text-emerald-400 mt-2 flex items-center gap-1"><TrendingUp className="w-3 h-3"/> +5% from last week</p>
+        </div>
+        <div className="bg-gray-900/50 border border-gray-800 rounded-3xl p-6 shadow-sm">
+          <div className="flex items-center gap-3 text-amber-400 mb-2">
+            <Zap className="w-5 h-5" />
+            <h3 className="font-semibold">Avg. Response Time</h3>
+          </div>
+          <p className="text-3xl font-bold">1.2s</p>
+          <p className="text-xs text-gray-500 mt-2">Optimal performance</p>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* Engagement Chart */}
+        <div className="bg-gray-900/40 border border-gray-800 rounded-3xl p-6">
+          <h3 className="font-semibold mb-6 flex items-center gap-2 text-gray-300">
+            <ActivityIcon /> Student Engagement Trends
+          </h3>
+          <div className="h-72">
+            <ResponsiveContainer width="100%" height="100%">
+              <AreaChart data={engagementData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                <defs>
+                  <linearGradient id="colorQs" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#06b6d4" stopOpacity={0.3}/>
+                    <stop offset="95%" stopColor="#06b6d4" stopOpacity={0}/>
+                  </linearGradient>
+                </defs>
+                <CartesianGrid strokeDasharray="3 3" stroke="#374151" vertical={false} />
+                <XAxis dataKey="name" stroke="#9ca3af" fontSize={12} tickLine={false} axisLine={false} />
+                <YAxis stroke="#9ca3af" fontSize={12} tickLine={false} axisLine={false} />
+                <Tooltip 
+                  contentStyle={{ backgroundColor: '#111827', borderColor: '#374151', borderRadius: '12px' }}
+                  itemStyle={{ color: '#e5e7eb' }}
+                />
+                <Area type="monotone" dataKey="questions" stroke="#06b6d4" strokeWidth={3} fillOpacity={1} fill="url(#colorQs)" />
+              </AreaChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+
+        {/* Popular Topics Chart */}
+        <div className="bg-gray-900/40 border border-gray-800 rounded-3xl p-6">
+          <h3 className="font-semibold mb-6 flex items-center gap-2 text-gray-300">
+            <Book className="w-4 h-4" /> Top Queried Topics
+          </h3>
+          <div className="h-72">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={topicsData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }} layout="vertical">
+                <CartesianGrid strokeDasharray="3 3" stroke="#374151" horizontal={false} />
+                <XAxis type="number" stroke="#9ca3af" fontSize={12} tickLine={false} axisLine={false} />
+                <YAxis dataKey="name" type="category" stroke="#9ca3af" fontSize={12} tickLine={false} axisLine={false} width={100} />
+                <Tooltip 
+                  cursor={{ fill: '#1f2937' }}
+                  contentStyle={{ backgroundColor: '#111827', borderColor: '#374151', borderRadius: '12px' }}
+                />
+                <Bar dataKey="queries" fill="#10b981" radius={[0, 6, 6, 0]} barSize={24} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ActivityIcon() {
+  return <TrendingUp className="w-4 h-4" />;
+}
+
+// ----------------------------------------------------------------------
+// Chat Window & Input
+// ----------------------------------------------------------------------
+function ChatWindow() {
+  const [messages, setMessages] = useState<Message[]>([
+    {
+      id: '1',
+      text: "Hello! I'm your AI teaching assistant. How can I help you with your studies today?",
+      sender: 'bot',
+      timestamp: new Date()
+    }
+  ]);
+  const [inputValue, setInputValue] = useState('');
+  const [isTyping, setIsTyping] = useState(false);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  const scrollToBottom = () => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  };
+
+  useEffect(() => {
+    scrollToBottom();
+  }, [messages, isTyping]);
+
+  const handleSend = async () => {
+    if (!inputValue.trim()) return;
+
+    const newUserMsg: Message = {
+      id: Date.now().toString(),
+      text: inputValue,
+      sender: 'user',
+      timestamp: new Date()
+    };
+
+    setMessages(prev => [...prev, newUserMsg]);
+    setInputValue('');
+    setIsTyping(true);
+
+    try {
+      const res = await fetch('/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: newUserMsg.text, history: messages }),
+      });
+      
+      const data = await res.json();
+      
+      if (res.ok) {
+        setMessages(prev => [...prev, {
+          id: (Date.now() + 1).toString(),
+          text: data.reply,
+          sender: 'bot',
+          timestamp: new Date()
+        }]);
+      } else {
+        throw new Error(data.error);
+      }
+    } catch (error) {
+      setMessages(prev => [...prev, {
+        id: (Date.now() + 1).toString(),
+        text: "Sorry, I'm having trouble connecting right now. Please try again later.",
+        sender: 'bot',
+        timestamp: new Date()
+      }]);
+    } finally {
+      setIsTyping(false);
+    }
+  };
+
+  const handleQuickReply = (text: string) => {
+    setInputValue(text);
+  };
+
+  return (
+    <div className="flex-1 flex flex-col min-h-0 bg-gray-950 relative">
+      <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/cubes.png')] opacity-[0.02] pointer-events-none"></div>
+
+      <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-6 scroll-smooth pb-8">
+        {messages.map((msg) => (
+          <motion.div 
+            key={msg.id}
+            initial={{ opacity: 0, y: 10, scale: 0.98 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            className={`flex ${msg.sender === 'user' ? 'justify-end' : 'justify-start'}`}
+          >
+            <div className={`max-w-[85%] md:max-w-[70%] rounded-3xl px-6 py-4 shadow-sm ${
+              msg.sender === 'user' 
+                ? 'bg-gradient-to-br from-cyan-600 to-cyan-500 text-white rounded-br-sm' 
+                : 'bg-gray-900 border border-gray-800 text-gray-200 rounded-bl-sm'
+            }`}>
+              {msg.sender === 'bot' && (
+                <div className="flex items-center gap-2 mb-2 text-[11px] text-gray-400 font-semibold tracking-widest uppercase font-mono">
+                  <Zap className="w-3 h-3 text-emerald-400" /> AI Assistant
+                </div>
+              )}
+              <p className="leading-relaxed whitespace-pre-wrap text-sm sm:text-base">{msg.text}</p>
+              <div className={`text-[10px] mt-2 font-mono ${msg.sender === 'user' ? 'text-cyan-100/70 text-right' : 'text-gray-500 text-left'}`}>
+                {msg.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+              </div>
+            </div>
+          </motion.div>
+        ))}
+
+        {isTyping && (
+          <motion.div 
+             initial={{ opacity: 0 }}
+             animate={{ opacity: 1 }}
+             className="flex justify-start"
+          >
+            <div className="bg-gray-900 border border-gray-800 rounded-3xl rounded-bl-sm px-6 py-4 w-24">
+              <div className="flex gap-1.5 justify-center">
+                <span className="w-2 h-2 bg-emerald-500 rounded-full animate-bounce [animation-delay:-0.3s]"></span>
+                <span className="w-2 h-2 bg-emerald-500 rounded-full animate-bounce [animation-delay:-0.15s]"></span>
+                <span className="w-2 h-2 bg-emerald-500 rounded-full animate-bounce"></span>
+              </div>
+            </div>
+          </motion.div>
+        )}
+        <div ref={messagesEndRef} className="h-px" />
+      </div>
+
+      {/* Input Area */}
+      <div className="bg-gray-950/80 backdrop-blur-xl border-t border-gray-800/80 p-4 sm:p-6 z-10">
+        <div className="max-w-4xl mx-auto">
+          
+          {/* Quick Replies */}
+          <div className="flex gap-2 overflow-x-auto pb-3 scrollbar-hide">
+            {["Summarize the last lecture", "What is the Big O for QuickSort?", "When is the next assignment due?"].map((text, i) => (
+              <button 
+                key={i}
+                onClick={() => handleQuickReply(text)}
+                className="whitespace-nowrap px-4 py-2 rounded-full border border-gray-800 bg-gray-900 hover:bg-gray-800 text-xs text-gray-300 transition-colors flex-shrink-0"
+              >
+                {text}
+              </button>
+            ))}
+          </div>
+
+          <div className="relative flex items-end gap-2 bg-gray-900/60 border border-gray-700 rounded-2xl p-2 shadow-inner focus-within:ring-1 focus-within:ring-cyan-500/50 focus-within:border-cyan-500/50 transition-all">
+            <textarea 
+              value={inputValue}
+              onChange={(e) => setInputValue(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                  e.preventDefault();
+                  handleSend();
+                }
+              }}
+              placeholder="Ask me anything about your courses..."
+              className="w-full max-h-32 min-h-[44px] bg-transparent resize-none outline-none text-gray-100 placeholder-gray-500 px-3 py-2.5 text-sm sm:text-base leading-relaxed scrollbar-hide"
+              rows={1}
+            />
+            <button 
+              onClick={handleSend}
+              disabled={!inputValue.trim() || isTyping}
+              className="p-3.5 bg-cyan-500 hover:bg-cyan-400 disabled:bg-gray-800 disabled:text-gray-600 text-gray-950 rounded-xl transition-all shrink-0 active:scale-95"
+            >
+              <Send className="w-5 h-5 flex-shrink-0" />
+            </button>
+          </div>
+          <div className="text-center mt-2">
+            <p className="text-[10px] text-gray-500 uppercase tracking-widest font-mono">Real-time NLP Engine Active</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ----------------------------------------------------------------------
+// Notifications Panel
+// ----------------------------------------------------------------------
+function NotificationsPanel({ onClose }: { onClose: () => void }) {
+  // Mock data showcasing urgent vs routine events
+  const notifications: Notification[] = [
+    { id: '1', title: 'Grade Updated: Midterm', message: 'Your grade for Introduction to Algorithms has been posted.', time: 'Just now', read: false, type: 'urgent' },
+    { id: '2', title: 'New Lecture Added', message: 'CS-101: Week 4 "Data Structures" lecture slides are now available on the LMS.', time: '10 min ago', read: false, type: 'routine' },
+    { id: '3', title: 'Assignment Reminder', message: 'Your Calculus II problem set is due tomorrow at 11:59 PM.', time: '2 hrs ago', read: false, type: 'urgent' },
+    { id: '4', title: 'System Maintenance', message: 'The LMS will be down for maintenance this Sunday 2 AM - 4 AM.', time: '1 day ago', read: true, type: 'routine' },
+  ];
+
+  return (
+    <>
+      <motion.div 
+        initial={{ opacity: 0 }} 
+        animate={{ opacity: 1 }} 
+        exit={{ opacity: 0 }}
+        onClick={onClose}
+        className="absolute inset-0 bg-black/40 backdrop-blur-sm z-40 lg:hidden" 
+      />
+      
+      <motion.div 
+        initial={{ x: '100%', opacity: 0 }}
+        animate={{ x: 0, opacity: 1 }}
+        exit={{ x: '100%', opacity: 0 }}
+        transition={{ type: 'spring', damping: 25, stiffness: 200 }}
+        className="absolute top-0 right-0 w-full sm:w-[400px] h-full bg-gray-950/95 border-l border-gray-800 z-50 flex flex-col shadow-2xl backdrop-blur-2xl"
+      >
+        <div className="flex items-center justify-between p-6 border-b border-gray-800">
+          <h3 className="font-semibold text-lg flex items-center gap-2">
+            <Bell className="w-5 h-5 text-cyan-400" />
+            Notifications
+          </h3>
+          <button onClick={onClose} className="p-2 bg-gray-900 rounded-full hover:bg-gray-800 transition-colors">
+            <X className="w-4 h-4 text-gray-400" />
+          </button>
+        </div>
+        
+        <div className="flex-1 overflow-y-auto p-4 space-y-3">
+          {notifications.map(n => (
+            <div 
+              key={n.id} 
+              className={`p-4 rounded-2xl border transition-colors relative overflow-hidden ${
+                n.read 
+                  ? 'bg-gray-900/50 border-gray-800/50 opacity-70' 
+                  : n.type === 'urgent' 
+                    ? 'bg-red-500/5 border-red-500/20 shadow-sm shadow-red-500/5' 
+                    : 'bg-gray-900 border-gray-700 shadow-sm'
+              }`}
+            >
+              {n.type === 'urgent' && !n.read && (
+                <div className="absolute top-0 left-0 w-1 h-full bg-red-500"></div>
+              )}
+              <div className="flex justify-between items-start mb-1.5 pl-2">
+                <div className="flex flex-col gap-1">
+                  <div className="flex items-center gap-2">
+                    {n.type === 'urgent' ? <AlertTriangle className="w-4 h-4 text-red-500" /> : <Info className="w-4 h-4 text-cyan-400" />}
+                    <h4 className={`text-sm font-semibold tracking-tight ${n.read ? 'text-gray-400' : n.type === 'urgent' ? 'text-red-100' : 'text-gray-100'}`}>{n.title}</h4>
+                  </div>
+                </div>
+                {!n.read && <span className={`w-2 h-2 rounded-full shrink-0 mt-1 ${n.type === 'urgent' ? 'bg-red-500' : 'bg-cyan-500'}`}></span>}
+              </div>
+              <p className="text-sm text-gray-400 leading-snug mb-3 pl-2 pr-4">{n.message}</p>
+              <p className="text-[10px] text-gray-500 font-mono tracking-wide pl-2 flex items-center gap-1">
+                <Clock className="w-3 h-3" /> {n.time}
+              </p>
+            </div>
+          ))}
+        </div>
+        
+        <div className="p-4 border-t border-gray-800 bg-gray-950 text-center">
+          <button className="text-xs text-gray-400 hover:text-cyan-400 transition-colors uppercase tracking-widest font-semibold flex items-center gap-2 mx-auto">
+            Mark All as Read
+          </button>
+        </div>
+      </motion.div>
+    </>
+  );
+}
