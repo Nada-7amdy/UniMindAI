@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Send, Book, Bell, Settings, User, LogOut, ChevronRight, Zap, GraduationCap, X, BarChart3, Clock, AlertTriangle, Info, TrendingUp, Users } from 'lucide-react';
+import { Send, Book, Bell, Settings, User, LogOut, ChevronRight, Zap, GraduationCap, X, BarChart3, Clock, AlertTriangle, Info, TrendingUp, Users, ShieldAlert } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar, Legend } from 'recharts';
+import { io } from 'socket.io-client';
 
 type Message = {
   id: string;
@@ -22,21 +23,49 @@ type Notification = {
 export default function App() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [user, setUser] = useState<{name: string, email: string, role: string} | null>(null);
+  const [isChecking, setIsChecking] = useState(true);
+
+  useEffect(() => {
+    const savedToken = localStorage.getItem('token');
+    const savedUser = localStorage.getItem('user');
+    if (savedToken && savedUser) {
+      setUser(JSON.parse(savedUser));
+      setIsAuthenticated(true);
+    }
+    setIsChecking(false);
+  }, []);
+
+  const handleLogout = () => {
+    localStorage.removeItem('token');
+    localStorage.removeItem('user');
+    setUser(null);
+    setIsAuthenticated(false);
+  };
+
+  if (isChecking) {
+    return (
+      <div className="min-h-screen bg-gray-950 flex items-center justify-center">
+        <div className="w-12 h-12 border-4 border-gray-800 border-t-cyan-500 rounded-full animate-spin"></div>
+      </div>
+    );
+  }
 
   if (!isAuthenticated) {
-    return <AuthPage onLogin={(userData) => {
+    return <AuthPage onLogin={(userData, token) => {
+      localStorage.setItem('token', token);
+      localStorage.setItem('user', JSON.stringify(userData));
       setUser(userData);
       setIsAuthenticated(true);
     }} />;
   }
 
-  return <MainLayout user={user} onLogout={() => setIsAuthenticated(false)} />;
+  return <MainLayout user={user} onLogout={handleLogout} />;
 }
 
 // ----------------------------------------------------------------------
 // Auth Page (Cyberpunk / iOS mixed theme)
 // ----------------------------------------------------------------------
-function AuthPage({ onLogin }: { onLogin: (user: any) => void }) {
+function AuthPage({ onLogin }: { onLogin: (user: any, token: string) => void }) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -52,9 +81,7 @@ function AuthPage({ onLogin }: { onLogin: (user: any) => void }) {
       });
       if (res.ok) {
         const data = await res.json();
-        // Mocking staff vs student based on email
-        const role = email.includes('staff') ? 'staff' : 'student';
-        onLogin({ ...data.user, role });
+        onLogin(data.user, data.token);
       } else {
         alert('Login failed. Use any email and password for this demo.');
       }
@@ -136,7 +163,26 @@ function AuthPage({ onLogin }: { onLogin: (user: any) => void }) {
 // ----------------------------------------------------------------------
 function MainLayout({ user, onLogout }: { user: any, onLogout: () => void }) {
   const [showNotifications, setShowNotifications] = useState(false);
-  const [currentView, setCurrentView] = useState<'chat' | 'analytics'>('chat');
+  const [currentView, setCurrentView] = useState<'chat' | 'analytics' | 'profile'>('chat');
+  const [notifications, setNotifications] = useState<Notification[]>([
+    { id: '1', title: 'Grade Updated: Midterm', message: 'Your grade for Introduction to Algorithms has been posted.', time: '1 hr ago', read: false, type: 'urgent' },
+    { id: '2', title: 'New Lecture Added', message: 'CS-101: Week 4 "Data Structures" lecture slides are now available on the LMS.', time: '2 hrs ago', read: false, type: 'routine' },
+    { id: '3', title: 'Assignment Reminder', message: 'Your Calculus II problem set is due tomorrow at 11:59 PM.', time: '4 hrs ago', read: false, type: 'urgent' },
+    { id: '4', title: 'System Maintenance', message: 'The LMS will be down for maintenance this Sunday 2 AM - 4 AM.', time: '1 day ago', read: true, type: 'routine' },
+  ]);
+
+  useEffect(() => {
+    const socket = io();
+
+    socket.on("notification:new", (newNotif: Notification) => {
+      setNotifications(prev => [newNotif, ...prev]);
+      setShowNotifications(true); // Auto-open for visibility during demo
+    });
+
+    return () => {
+      socket.disconnect();
+    };
+  }, []);
 
   const chatHistory = [
     { id: '1', title: 'Calculus Review', time: 'Yesterday' },
@@ -160,6 +206,7 @@ function MainLayout({ user, onLogout }: { user: any, onLogout: () => void }) {
           {user?.role === 'staff' && (
             <NavItem icon={<BarChart3 />} label="Analytics (Staff)" active={currentView === 'analytics'} onClick={() => setCurrentView('analytics')} />
           )}
+          <NavItem icon={<User />} label="Profile" active={currentView === 'profile'} onClick={() => setCurrentView('profile')} />
           <NavItem icon={<Zap />} label="Study Plan" />
         </nav>
 
@@ -216,7 +263,9 @@ function MainLayout({ user, onLogout }: { user: any, onLogout: () => void }) {
         <header className="h-16 border-b border-gray-800/60 bg-gray-950/50 backdrop-blur-xl flex items-center justify-between px-6 z-20 sticky top-0">
           <div className="flex items-center gap-3">
             <h2 className="font-semibold text-lg hover:text-cyan-400 transition-colors cursor-pointer">
-              {currentView === 'chat' ? 'CS-101 Assistant' : 'Platform Analytics'}
+              {currentView === 'chat' && 'CS-101 Assistant'}
+              {currentView === 'analytics' && 'Platform Analytics'}
+              {currentView === 'profile' && 'Student Profile'}
             </h2>
             {currentView === 'chat' && (
               <span className="hidden sm:flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-500/10 text-emerald-400 text-xs font-mono border border-emerald-500/20">
@@ -235,11 +284,19 @@ function MainLayout({ user, onLogout }: { user: any, onLogout: () => void }) {
           </button>
         </header>
 
-        {currentView === 'chat' ? <ChatWindow /> : <AnalyticsDashboard />}
+        {currentView === 'chat' && <ChatWindow />}
+        {currentView === 'analytics' && <AnalyticsDashboard />}
+        {currentView === 'profile' && <StudentProfile />}
 
         {/* Notifications Panel */}
         <AnimatePresence>
-          {showNotifications && <NotificationsPanel onClose={() => setShowNotifications(false)} />}
+          {showNotifications && (
+            <NotificationsPanel 
+              notifications={notifications} 
+              onClose={() => setShowNotifications(false)} 
+              onMarkRead={() => setNotifications(prev => prev.map(n => ({...n, read: true})))}
+            />
+          )}
         </AnimatePresence>
       </main>
     </div>
@@ -266,6 +323,8 @@ function NavItem({ icon, label, active = false, onClick }: { icon: React.ReactNo
 // Analytics Dashboard (Staff View)
 // ----------------------------------------------------------------------
 function AnalyticsDashboard() {
+  const [isTriggering, setIsTriggering] = useState(false);
+
   const engagementData = [
     { name: 'Mon', questions: 400, activeStudents: 240 },
     { name: 'Tue', questions: 300, activeStudents: 139 },
@@ -283,8 +342,49 @@ function AnalyticsDashboard() {
     { name: 'Biology', queries: 400 },
   ];
 
+  const triggerUrgentNotif = async () => {
+    setIsTriggering(true);
+    try {
+      const token = localStorage.getItem('token');
+      await fetch('/api/admin/trigger-notif', {
+        method: 'POST',
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          title: "EMERGENCY: Room Change",
+          message: "Calculus finals moved to Building 7, Auditorium B. Please arrive 15 minutes early and bring your student ID.",
+          type: "urgent"
+        })
+      });
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setTimeout(() => setIsTriggering(false), 500);
+    }
+  };
+
   return (
     <div className="flex-1 overflow-y-auto p-6 md:p-8 space-y-6">
+      {/* Staff Admin Actions */}
+      <div className="bg-red-500/10 border border-red-500/20 rounded-3xl p-6 flex flex-col sm:flex-row items-center justify-between gap-4">
+        <div>
+          <h3 className="text-red-400 font-bold flex items-center gap-2">
+            <ShieldAlert className="w-5 h-5" /> Urgent Broadcast
+          </h3>
+          <p className="text-sm text-gray-400 mt-1">Send a real-time urgent notification to all active students.</p>
+        </div>
+        <button 
+          onClick={triggerUrgentNotif}
+          disabled={isTriggering}
+          className="bg-red-500 hover:bg-red-600 disabled:bg-gray-800 text-white font-semibold py-3 px-6 rounded-2xl transition-all shadow-lg shadow-red-500/20 active:scale-95 flex items-center gap-2"
+        >
+          {isTriggering ? 'Broadcasting...' : 'Trigger Emergency Alert'}
+          <AlertTriangle className="w-4 h-4" />
+        </button>
+      </div>
+
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         <div className="bg-gray-900/50 border border-gray-800 rounded-3xl p-6 shadow-sm">
           <div className="flex items-center gap-3 text-cyan-400 mb-2">
@@ -408,9 +508,13 @@ function ChatWindow() {
     setIsTyping(true);
 
     try {
+      const token = localStorage.getItem('token');
       const res = await fetch('/api/chat', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
         body: JSON.stringify({ message: newUserMsg.text, history: messages }),
       });
       
@@ -496,7 +600,7 @@ function ChatWindow() {
           
           {/* Quick Replies */}
           <div className="flex gap-2 overflow-x-auto pb-3 scrollbar-hide">
-            {["Summarize the last lecture", "What is the Big O for QuickSort?", "When is the next assignment due?"].map((text, i) => (
+            {["When can I register?", "What are the GPA rules?", "Where is my exam schedule?"].map((text, i) => (
               <button 
                 key={i}
                 onClick={() => handleQuickReply(text)}
@@ -541,15 +645,7 @@ function ChatWindow() {
 // ----------------------------------------------------------------------
 // Notifications Panel
 // ----------------------------------------------------------------------
-function NotificationsPanel({ onClose }: { onClose: () => void }) {
-  // Mock data showcasing urgent vs routine events
-  const notifications: Notification[] = [
-    { id: '1', title: 'Grade Updated: Midterm', message: 'Your grade for Introduction to Algorithms has been posted.', time: 'Just now', read: false, type: 'urgent' },
-    { id: '2', title: 'New Lecture Added', message: 'CS-101: Week 4 "Data Structures" lecture slides are now available on the LMS.', time: '10 min ago', read: false, type: 'routine' },
-    { id: '3', title: 'Assignment Reminder', message: 'Your Calculus II problem set is due tomorrow at 11:59 PM.', time: '2 hrs ago', read: false, type: 'urgent' },
-    { id: '4', title: 'System Maintenance', message: 'The LMS will be down for maintenance this Sunday 2 AM - 4 AM.', time: '1 day ago', read: true, type: 'routine' },
-  ];
-
+function NotificationsPanel({ notifications, onClose, onMarkRead }: { notifications: Notification[], onClose: () => void, onMarkRead: () => void }) {
   return (
     <>
       <motion.div 
@@ -610,11 +706,114 @@ function NotificationsPanel({ onClose }: { onClose: () => void }) {
         </div>
         
         <div className="p-4 border-t border-gray-800 bg-gray-950 text-center">
-          <button className="text-xs text-gray-400 hover:text-cyan-400 transition-colors uppercase tracking-widest font-semibold flex items-center gap-2 mx-auto">
+          <button 
+            onClick={onMarkRead}
+            className="text-xs text-gray-400 hover:text-cyan-400 transition-colors uppercase tracking-widest font-semibold flex items-center gap-2 mx-auto"
+          >
             Mark All as Read
           </button>
         </div>
       </motion.div>
     </>
+  );
+}
+
+// ----------------------------------------------------------------------
+// Student Profile View
+// ----------------------------------------------------------------------
+function StudentProfile() {
+  const [profile, setProfile] = useState<any>(null);
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchProfile = async () => {
+      try {
+        const token = localStorage.getItem('token');
+        const res = await fetch('/api/sis/profile', {
+          headers: {
+            'Authorization': `Bearer ${token}`
+          }
+        });
+        if (res.ok) {
+          const data = await res.json();
+          setProfile(data);
+        }
+      } catch (err) {
+        console.error(err);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+    fetchProfile();
+  }, []);
+
+  if (isLoading) {
+    return (
+      <div className="flex-1 flex items-center justify-center">
+        <div className="w-8 h-8 border-4 border-gray-800 border-t-cyan-500 rounded-full animate-spin"></div>
+      </div>
+    );
+  }
+
+  if (!profile) {
+    return (
+      <div className="flex-1 flex items-center justify-center text-gray-500">
+        Failed to load profile data.
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex-1 overflow-y-auto p-6 md:p-8">
+      <div className="max-w-3xl mx-auto space-y-6">
+        <div className="bg-gray-900/50 border border-gray-800 rounded-3xl p-8 flex flex-col md:flex-row items-center md:items-start gap-6">
+          <div className="w-24 h-24 rounded-full bg-gradient-to-br from-cyan-500 to-emerald-500 flex items-center justify-center text-3xl font-bold text-gray-950">
+            {profile.studentId.substring(0, 3)}
+          </div>
+          <div className="text-center md:text-left flex-1">
+            <h2 className="text-2xl font-bold text-gray-100">Jane Doe</h2>
+            <p className="text-gray-400 font-mono mt-1 text-sm">{profile.studentId}</p>
+            <div className="flex flex-wrap items-center justify-center md:justify-start gap-3 mt-4">
+              <span className="px-3 py-1 bg-cyan-500/10 text-cyan-400 border border-cyan-500/20 rounded-full text-xs font-medium">
+                {profile.year}
+              </span>
+              <span className="px-3 py-1 bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 rounded-full text-xs font-medium">
+                {profile.academicStanding}
+              </span>
+            </div>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div className="bg-gray-900/30 border border-gray-800 rounded-3xl p-6">
+            <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-widest mb-4">Academic Details</h3>
+            <div className="space-y-4">
+              <div>
+                <p className="text-xs text-gray-500 mb-1">Major</p>
+                <p className="font-medium text-gray-200">{profile.major}</p>
+              </div>
+              <div>
+                <p className="text-xs text-gray-500 mb-1">Academic Advisor</p>
+                <p className="font-medium text-gray-200">{profile.advisor}</p>
+              </div>
+            </div>
+          </div>
+
+          <div className="bg-gray-900/30 border border-gray-800 rounded-3xl p-6">
+             <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-widest mb-4">Quick Stats</h3>
+             <div className="space-y-4">
+              <div className="flex justify-between items-center">
+                <p className="text-sm text-gray-400">Cumulative GPA</p>
+                <p className="font-medium text-gray-200">3.84</p>
+              </div>
+              <div className="flex justify-between items-center">
+                <p className="text-sm text-gray-400">Credits Earned</p>
+                <p className="font-medium text-gray-200">60</p>
+              </div>
+             </div>
+          </div>
+        </div>
+      </div>
+    </div>
   );
 }
