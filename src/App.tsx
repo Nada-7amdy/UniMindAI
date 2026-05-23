@@ -21,11 +21,6 @@ type Notification = {
   type: 'urgent' | 'routine';
 };
 
-interface BeforeInstallPromptEvent extends Event {
-  prompt: () => Promise<void>;
-  userChoice: Promise<{ outcome: 'accepted' | 'dismissed'; platform: string }>;
-}
-
 export default function App() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [user, setUser] = useState<{name: string, email: string, role: string} | null>(null);
@@ -57,76 +52,15 @@ export default function App() {
   }
 
   if (!isAuthenticated) {
-    return (
-      <>
-        <AuthPage onLogin={(userData, token) => {
-          localStorage.setItem('token', token);
-          localStorage.setItem('user', JSON.stringify(userData));
-          setUser(userData);
-          setIsAuthenticated(true);
-        }} />
-        <InstallAppPrompt />
-      </>
-    );
+    return <AuthPage onLogin={(userData, token) => {
+      localStorage.setItem('token', token);
+      localStorage.setItem('user', JSON.stringify(userData));
+      setUser(userData);
+      setIsAuthenticated(true);
+    }} />;
   }
 
-  return (
-    <>
-      <MainLayout user={user} onLogout={handleLogout} />
-      <InstallAppPrompt />
-    </>
-  );
-}
-
-function InstallAppPrompt() {
-  const [deferredPrompt, setDeferredPrompt] = useState<BeforeInstallPromptEvent | null>(null);
-  const [isInstalled, setIsInstalled] = useState(false);
-
-  useEffect(() => {
-    const standaloneMode = window.matchMedia('(display-mode: standalone)').matches;
-    const iosStandalone = (window.navigator as Navigator & { standalone?: boolean }).standalone === true;
-    setIsInstalled(standaloneMode || iosStandalone);
-
-    const handleBeforeInstallPrompt = (event: Event) => {
-      event.preventDefault();
-      setDeferredPrompt(event as BeforeInstallPromptEvent);
-    };
-
-    const handleAppInstalled = () => {
-      setIsInstalled(true);
-      setDeferredPrompt(null);
-    };
-
-    window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
-    window.addEventListener('appinstalled', handleAppInstalled);
-
-    return () => {
-      window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
-      window.removeEventListener('appinstalled', handleAppInstalled);
-    };
-  }, []);
-
-  const handleInstall = async () => {
-    if (!deferredPrompt) return;
-    await deferredPrompt.prompt();
-    const choice = await deferredPrompt.userChoice;
-    if (choice.outcome === 'accepted') {
-      setDeferredPrompt(null);
-    }
-  };
-
-  if (isInstalled || !deferredPrompt) {
-    return null;
-  }
-
-  return (
-    <button
-      onClick={handleInstall}
-      className="fixed bottom-5 right-5 z-50 rounded-xl border border-cyan-500/40 bg-gray-900/95 px-4 py-2 text-sm font-semibold text-cyan-300 shadow-lg shadow-cyan-900/40 transition-colors hover:bg-gray-800"
-    >
-      Install App
-    </button>
-  );
+  return <MainLayout user={user} onLogout={handleLogout} />;
 }
 
 // ----------------------------------------------------------------------
