@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Send, Book, Bell, Settings, User, LogOut, ChevronRight, Zap, GraduationCap, X, BarChart3, Clock, AlertTriangle, Info, TrendingUp, Users, ShieldAlert } from 'lucide-react';
+import { Send, Book, Bell, Settings, User, LogOut, ChevronRight, Zap, GraduationCap, X, BarChart3, Clock, AlertTriangle, Info, TrendingUp, Users, ShieldAlert, CheckCircle, Plus, Calendar } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar, Legend } from 'recharts';
 import { io } from 'socket.io-client';
+import { initGoogleAuth, googleSignIn, getGoogleAccessToken, fetchCalendarEvents } from './lib/googleApi';
 
 type Message = {
   id: string;
@@ -66,27 +67,60 @@ export default function App() {
 // Auth Page (Cyberpunk / iOS mixed theme)
 // ----------------------------------------------------------------------
 function AuthPage({ onLogin }: { onLogin: (user: any, token: string) => void }) {
+  const [mode, setMode] = useState<'login' | 'signup' | 'forgot'>('login');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [name, setName] = useState('');
+  const [studentId, setStudentId] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [resetSuccess, setResetSuccess] = useState(false);
 
-  const handleLogin = async (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsLoading(true);
+    setError(null);
+
+    if (mode === 'forgot') {
+      try {
+        const res = await fetch('/api/forgot-password', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email }),
+        });
+        const data = await res.json();
+        if (res.ok) {
+          setResetSuccess(true);
+        } else {
+          setError(data.error || 'Failed to request reset link.');
+        }
+      } catch (err) {
+        setError('Connection error. Please try again.');
+      } finally {
+        setIsLoading(false);
+      }
+      return;
+    }
+
+    const endpoint = mode === 'login' ? '/api/login' : '/api/register';
+    const body = mode === 'login' 
+      ? { email, password } 
+      : { name, email, studentId, password };
+
     try {
-      const res = await fetch('/api/login', {
+      const res = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password }),
+        body: JSON.stringify(body),
       });
+      const data = await res.json();
       if (res.ok) {
-        const data = await res.json();
         onLogin(data.user, data.token);
       } else {
-        alert('Login failed. Use any email and password for this demo.');
+        setError(data.error || 'Authentication failed');
       }
     } catch (err) {
-      console.error(err);
+      setError('Connection error. Please try again.');
     } finally {
       setIsLoading(false);
     }
@@ -112,46 +146,159 @@ function AuthPage({ onLogin }: { onLogin: (user: any, token: string) => void }) 
             </div>
           </div>
           
-          <h1 className="text-2xl font-bold text-center mb-2">Student Portal</h1>
-          <p className="text-gray-400 text-center text-sm mb-8">Sign in to access your AI Assistant</p>
+          <h1 className="text-2xl font-bold text-center mb-2">
+            {mode === 'forgot' ? 'Reset Password' : 'Student Portal'}
+          </h1>
+          <p className="text-gray-400 text-center text-sm mb-6">
+            {mode === 'login' && 'Sign in to access your AI Assistant'}
+            {mode === 'signup' && 'Create an account to get started'}
+            {mode === 'forgot' && 'Enter your registered email to recover your account'}
+          </p>
 
-          <form onSubmit={handleLogin} className="space-y-4">
-            <div>
-              <label className="block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1">Email / Student ID</label>
-              <input 
-                type="email" 
-                required
-                value={email}
-                onChange={e => setEmail(e.target.value)}
-                className="w-full bg-gray-950/50 border border-gray-800 rounded-xl px-4 py-3 placeholder-gray-600 focus:outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500 transition-all font-mono text-sm"
-                placeholder="student@university.edu (or staff@)"
-              />
+          {error && (
+            <div className="mb-6 p-4 bg-red-500/10 border border-red-500/20 rounded-xl text-red-400 text-sm flex items-center gap-2">
+              <AlertTriangle className="w-4 h-4 shrink-0" />
+              {error}
             </div>
-            <div>
-              <label className="block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1">Password</label>
-              <input 
-                type="password" 
-                required
-                value={password}
-                onChange={e => setPassword(e.target.value)}
-                className="w-full bg-gray-950/50 border border-gray-800 rounded-xl px-4 py-3 placeholder-gray-600 focus:outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500 transition-all font-mono text-sm"
-                placeholder="••••••••"
-              />
-            </div>
-            
-            <button 
-              type="submit" 
-              disabled={isLoading}
-              className="w-full mt-4 bg-gradient-to-r from-cyan-500 to-emerald-500 text-gray-950 font-semibold rounded-xl px-4 py-3 hover:opacity-90 active:scale-[0.98] transition-all flex justify-center items-center gap-2"
+          )}
+
+          {resetSuccess ? (
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              className="space-y-6 text-center"
             >
-              {isLoading ? 'Authenticating...' : 'Secure Login'}
-              {!isLoading && <ChevronRight className="w-5 h-5" />}
-            </button>
-          </form>
+              <div className="w-16 h-16 bg-emerald-500/10 border border-emerald-500/20 rounded-full flex items-center justify-center mx-auto text-emerald-400">
+                <CheckCircle className="w-8 h-8" />
+              </div>
+              <div className="space-y-2">
+                <h3 className="text-lg font-semibold text-gray-100">Check Your Email</h3>
+                <p className="text-sm text-gray-400 leading-relaxed px-2">
+                  If this email is registered, a password reset link has been sent to your inbox.
+                </p>
+              </div>
+              <button
+                onClick={() => {
+                  setMode('login');
+                  setResetSuccess(false);
+                  setError(null);
+                }}
+                className="w-full bg-gray-950 hover:bg-gray-900 border border-gray-800 text-gray-200 font-semibold rounded-xl px-4 py-3 active:scale-[0.98] transition-all"
+              >
+                Back to Login
+              </button>
+            </motion.div>
+          ) : (
+            <form onSubmit={handleSubmit} className="space-y-4">
+              {mode === 'signup' && (
+                <>
+                  <motion.div initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }}>
+                    <label className="block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1">Full Name</label>
+                    <input 
+                      type="text" 
+                      required
+                      value={name}
+                      onChange={e => setName(e.target.value)}
+                      className="w-full bg-gray-950/50 border border-gray-800 rounded-xl px-4 py-3 placeholder-gray-600 focus:outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500 transition-all text-sm"
+                      placeholder="Jane Doe"
+                    />
+                  </motion.div>
+                  <motion.div initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: 0.1 }}>
+                    <label className="block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1">Student ID</label>
+                    <input 
+                      type="text" 
+                      required
+                      value={studentId}
+                      onChange={e => setStudentId(e.target.value)}
+                      className="w-full bg-gray-950/50 border border-gray-800 rounded-xl px-4 py-3 placeholder-gray-600 focus:outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500 transition-all font-mono text-sm"
+                      placeholder="STU-00000"
+                    />
+                  </motion.div>
+                </>
+              )}
+              
+              <div>
+                <label className="block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1">Email</label>
+                <input 
+                  type="email" 
+                  required
+                  value={email}
+                  onChange={e => setEmail(e.target.value)}
+                  className="w-full bg-gray-950/50 border border-gray-800 rounded-xl px-4 py-3 placeholder-gray-600 focus:outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500 transition-all font-mono text-sm"
+                  placeholder="student@university.edu"
+                />
+              </div>
 
-          <div className="mt-6 text-center">
-            <a href="#" className="text-xs text-cyan-500 hover:text-cyan-400 font-medium transition-colors">Forgot Password?</a>
-          </div>
+              {mode !== 'forgot' && (
+                <div>
+                  <label className="block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1">Password</label>
+                  <input 
+                    type="password" 
+                    required
+                    value={password}
+                    onChange={e => setPassword(e.target.value)}
+                    className="w-full bg-gray-950/50 border border-gray-800 rounded-xl px-4 py-3 placeholder-gray-600 focus:outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500 transition-all font-mono text-sm"
+                    placeholder="••••••••"
+                  />
+                </div>
+              )}
+              
+              <button 
+                type="submit" 
+                disabled={isLoading}
+                className="w-full mt-4 bg-gradient-to-r from-cyan-500 to-emerald-500 text-gray-950 font-semibold rounded-xl px-4 py-3 hover:opacity-90 active:scale-[0.98] transition-all flex justify-center items-center gap-2"
+              >
+                {isLoading 
+                  ? (mode === 'forgot' ? 'Sending...' : 'Verifying...') 
+                  : mode === 'login' 
+                    ? 'Secure Login' 
+                    : mode === 'signup' 
+                      ? 'Create Account' 
+                      : 'Send Reset Link'
+                }
+                {!isLoading && <ChevronRight className="w-5 h-5" />}
+              </button>
+            </form>
+          )}
+
+          {!resetSuccess && (
+            <div className="mt-8 pt-6 border-t border-gray-800 flex flex-col items-center gap-4">
+              {mode === 'forgot' ? (
+                <button 
+                  onClick={() => {
+                    setMode('login');
+                    setError(null);
+                  }}
+                  className="text-sm text-gray-400 hover:text-cyan-400 font-medium transition-colors"
+                >
+                  Back to Log In
+                </button>
+              ) : (
+                <>
+                  <button 
+                    onClick={() => {
+                      setMode(mode === 'login' ? 'signup' : 'login');
+                      setError(null);
+                    }}
+                    className="text-sm text-gray-400 hover:text-cyan-400 font-medium transition-colors"
+                  >
+                    {mode === 'login' ? "Don't have an account? Sign Up" : "Already have an account? Log In"}
+                  </button>
+                  {mode === 'login' && (
+                    <button 
+                      onClick={() => {
+                        setMode('forgot');
+                        setError(null);
+                      }}
+                      className="text-xs text-gray-600 hover:text-gray-400 font-medium transition-colors"
+                    >
+                      Forgot Password?
+                    </button>
+                  )}
+                </>
+              )}
+            </div>
+          )}
         </div>
       </motion.div>
     </div>
@@ -163,7 +310,24 @@ function AuthPage({ onLogin }: { onLogin: (user: any, token: string) => void }) 
 // ----------------------------------------------------------------------
 function MainLayout({ user, onLogout }: { user: any, onLogout: () => void }) {
   const [showNotifications, setShowNotifications] = useState(false);
-  const [currentView, setCurrentView] = useState<'chat' | 'analytics' | 'profile'>('chat');
+  const [currentView, setCurrentView] = useState<'chat' | 'analytics' | 'profile' | 'studyPlan' | 'schedule'>('chat');
+  const [sessionId, setSessionId] = useState<string | null>(localStorage.getItem('currentSessionId'));
+  const [sessions, setSessions] = useState<any[]>([]);
+  const [googleUser, setGoogleUser] = useState<any>(null);
+  const [googleToken, setGoogleToken] = useState<string | null>(null);
+
+  useEffect(() => {
+    initGoogleAuth(
+      (user, token) => {
+        setGoogleUser(user);
+        setGoogleToken(token);
+      },
+      () => {
+        setGoogleUser(null);
+        setGoogleToken(null);
+      }
+    );
+  }, []);
   const [notifications, setNotifications] = useState<Notification[]>([
     { id: '1', title: 'Grade Updated: Midterm', message: 'Your grade for Introduction to Algorithms has been posted.', time: '1 hr ago', read: false, type: 'urgent' },
     { id: '2', title: 'New Lecture Added', message: 'CS-101: Week 4 "Data Structures" lecture slides are now available on the LMS.', time: '2 hrs ago', read: false, type: 'routine' },
@@ -179,16 +343,39 @@ function MainLayout({ user, onLogout }: { user: any, onLogout: () => void }) {
       setShowNotifications(true); // Auto-open for visibility during demo
     });
 
+    fetchSessions();
+
     return () => {
       socket.disconnect();
     };
   }, []);
 
-  const chatHistory = [
-    { id: '1', title: 'Calculus Review', time: 'Yesterday' },
-    { id: '2', title: 'Python WebSockets', time: 'Mon, 10:30 AM' },
-    { id: '3', title: 'Biology Midterm Qs', time: 'Last Week' },
-  ];
+  const fetchSessions = async () => {
+    try {
+      const token = localStorage.getItem('token');
+      const res = await fetch('/api/chat/sessions', {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setSessions(data);
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const handleNewChat = () => {
+    setSessionId(null);
+    localStorage.removeItem('currentSessionId');
+    setCurrentView('chat');
+  };
+
+  const handleSelectSession = (id: string) => {
+    setSessionId(id);
+    localStorage.setItem('currentSessionId', id);
+    setCurrentView('chat');
+  };
 
   return (
     <div className="h-screen flex bg-gray-950 text-gray-100 overflow-hidden selection:bg-cyan-500/30 font-sans">
@@ -207,23 +394,38 @@ function MainLayout({ user, onLogout }: { user: any, onLogout: () => void }) {
             <NavItem icon={<BarChart3 />} label="Analytics (Staff)" active={currentView === 'analytics'} onClick={() => setCurrentView('analytics')} />
           )}
           <NavItem icon={<User />} label="Profile" active={currentView === 'profile'} onClick={() => setCurrentView('profile')} />
-          <NavItem icon={<Zap />} label="Study Plan" />
+          <NavItem icon={<Zap />} label="Study Plan" active={currentView === 'studyPlan'} onClick={() => setCurrentView('studyPlan')} />
+          <NavItem icon={<Calendar />} label="Schedule" active={currentView === 'schedule'} onClick={() => setCurrentView('schedule')} />
         </nav>
 
         {/* Chat History Section */}
         <div className="hidden lg:block mt-8 flex-1 overflow-y-auto px-4">
-          <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-widest mb-3 px-2 flex items-center gap-2">
-            <Clock className="w-3.5 h-3.5" /> Recent Sessions
-          </h3>
+          <div className="flex items-center justify-between mb-3 px-2">
+            <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-widest flex items-center gap-2">
+              <Clock className="w-3.5 h-3.5" /> Recent Sessions
+            </h3>
+            <button 
+              onClick={handleNewChat}
+              className="p-1 hover:bg-gray-800 rounded-md text-cyan-400 transition-colors"
+              title="New Chat"
+            >
+              <Plus className="w-4 h-4" />
+            </button>
+          </div>
           <ul className="space-y-1">
-            {chatHistory.map(session => (
+            {sessions.map(session => (
               <li key={session.id}>
-                <button className="w-full text-left px-3 py-2 rounded-lg hover:bg-gray-900 text-sm text-gray-400 hover:text-gray-200 transition-colors flex items-center justify-between group">
+                <button 
+                  onClick={() => handleSelectSession(session.id)}
+                  className={`w-full text-left px-3 py-2 rounded-lg hover:bg-gray-900 text-sm transition-colors flex items-center justify-between group ${sessionId === session.id ? 'bg-gray-900 text-cyan-400' : 'text-gray-400 hover:text-gray-200'}`}
+                >
                   <span className="truncate pr-2">{session.title}</span>
-                  <span className="text-[10px] text-gray-600 opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap">{session.time}</span>
                 </button>
               </li>
             ))}
+            {sessions.length === 0 && (
+              <p className="text-[10px] text-gray-600 px-2 italic">No recent chats</p>
+            )}
           </ul>
         </div>
 
@@ -266,6 +468,8 @@ function MainLayout({ user, onLogout }: { user: any, onLogout: () => void }) {
               {currentView === 'chat' && 'CS-101 Assistant'}
               {currentView === 'analytics' && 'Platform Analytics'}
               {currentView === 'profile' && 'Student Profile'}
+              {currentView === 'studyPlan' && 'Curriculum & Progress'}
+              {currentView === 'schedule' && 'Calendar & Schedule'}
             </h2>
             {currentView === 'chat' && (
               <span className="hidden sm:flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-500/10 text-emerald-400 text-xs font-mono border border-emerald-500/20">
@@ -284,9 +488,11 @@ function MainLayout({ user, onLogout }: { user: any, onLogout: () => void }) {
           </button>
         </header>
 
-        {currentView === 'chat' && <ChatWindow />}
+        {currentView === 'chat' && <ChatWindow sessionId={sessionId} onSessionCreated={(id) => {setSessionId(id); fetchSessions();}} googleToken={googleToken} />}
         {currentView === 'analytics' && <AnalyticsDashboard />}
-        {currentView === 'profile' && <StudentProfile />}
+        {currentView === 'profile' && <StudentProfile googleUser={googleUser} googleToken={googleToken} onGoogleAuth={setGoogleToken} />}
+        {currentView === 'studyPlan' && <StudyPlanView />}
+        {currentView === 'schedule' && <ScheduleView googleToken={googleToken} />}
 
         {/* Notifications Panel */}
         <AnimatePresence>
@@ -303,6 +509,148 @@ function MainLayout({ user, onLogout }: { user: any, onLogout: () => void }) {
   );
 }
 
+// ----------------------------------------------------------------------
+// Study Plan View
+// ----------------------------------------------------------------------
+function StudyPlanView() {
+  const [data, setData] = useState<any>(null);
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchPlan = async () => {
+      try {
+        const token = localStorage.getItem('token');
+        const res = await fetch('/api/sis/study-plan', {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        if (res.ok) {
+          const json = await res.json();
+          setData(json);
+        }
+      } catch (err) {
+        console.error(err);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+    fetchPlan();
+  }, []);
+
+  if (isLoading) {
+    return (
+      <div className="flex-1 flex items-center justify-center">
+        <div className="w-8 h-8 border-4 border-gray-800 border-t-cyan-500 rounded-full animate-spin"></div>
+      </div>
+    );
+  }
+
+  if (!data) {
+    return (
+      <div className="flex-1 flex flex-col items-center justify-center text-gray-500 gap-4">
+        <Info className="w-12 h-12 opacity-20" />
+        <p>Could not retrieve curriculum data.</p>
+      </div>
+    );
+  }
+
+  const progressPercent = Math.round((data.completedCredits / data.totalCredits) * 100);
+
+  return (
+    <div className="flex-1 overflow-y-auto p-6 md:p-8">
+      <div className="max-w-4xl mx-auto space-y-8">
+        {/* Overall Progress */}
+        <section className="bg-gray-900/40 border border-gray-800 rounded-3xl p-8">
+          <div className="flex flex-col md:flex-row md:items-end justify-between gap-6 mb-8">
+            <div>
+              <h3 className="text-gray-400 text-sm font-semibold uppercase tracking-widest mb-1">Academic Progress</h3>
+              <p className="text-3xl font-bold text-gray-100">{progressPercent}% Complete</p>
+            </div>
+            <div className="text-right">
+              <p className="text-gray-400 text-sm">{data.completedCredits} / {data.totalCredits} Credit Hours</p>
+            </div>
+          </div>
+          
+          <div className="h-4 w-full bg-gray-950 rounded-full overflow-hidden border border-gray-800">
+            <motion.div 
+              initial={{ width: 0 }}
+              animate={{ width: `${progressPercent}%` }}
+              transition={{ duration: 1, ease: "easeOut" }}
+              className="h-full bg-gradient-to-r from-cyan-500 to-emerald-500 shadow-[0_0_20px_rgba(6,182,212,0.3)]"
+            />
+          </div>
+        </section>
+
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+          {/* In Progress */}
+          <div className="lg:col-span-1 space-y-4">
+            <h4 className="flex items-center gap-2 text-sm font-semibold text-gray-400 px-2 uppercase tracking-wider">
+              <Clock className="w-4 h-4 text-cyan-400" /> Current Enrollment
+            </h4>
+            <div className="space-y-3">
+              {data.currentCourses.map((c: any, i: number) => (
+                <div key={i} className="bg-cyan-500/5 border border-cyan-500/20 rounded-2xl p-4">
+                  <p className="text-xs font-mono text-cyan-400 mb-1">{c.code}</p>
+                  <p className="font-medium text-gray-200">{c.name}</p>
+                  <p className="text-[10px] text-gray-500 mt-2">{c.credits} Credits</p>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Detailed Course Breakdown */}
+          <div className="lg:col-span-2 space-y-6">
+            <div className="space-y-4">
+               <h4 className="flex items-center gap-2 text-sm font-semibold text-gray-400 px-2 uppercase tracking-wider">
+                <CheckCircle className="w-4 h-4 text-emerald-400" /> Completed Courses
+              </h4>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {data.completedCourses.slice(0, 6).map((c: any, i: number) => (
+                  <div key={i} className="bg-gray-900/30 border border-gray-800 rounded-xl p-3 flex justify-between items-center">
+                    <div>
+                      <p className="text-[10px] font-mono text-gray-500 uppercase">{c.code}</p>
+                      <p className="text-sm font-medium text-gray-300 truncate max-w-[150px]">{c.name}</p>
+                    </div>
+                    <div className="w-6 h-6 rounded-full bg-emerald-500/10 flex items-center justify-center">
+                      <CheckCircle className="w-3.5 h-3.5 text-emerald-500" />
+                    </div>
+                  </div>
+                ))}
+                {data.completedCourses.length > 6 && (
+                  <div className="bg-gray-900/10 border border-dashed border-gray-800 rounded-xl p-3 flex items-center justify-center text-xs text-gray-600">
+                    + {data.completedCourses.length - 6} more completed
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="space-y-4">
+               <h4 className="flex items-center gap-2 text-sm font-semibold text-gray-400 px-2 uppercase tracking-wider">
+                <Book className="w-4 h-4 text-gray-500" /> Remaining Requirements
+              </h4>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {data.remainingCourses.map((c: any, i: number) => (
+                  <div key={i} className="bg-gray-900/20 border border-gray-800/50 rounded-xl p-3 flex justify-between items-center group hover:bg-gray-800/30 transition-all cursor-default">
+                    <div>
+                      <p className="text-[10px] font-mono text-gray-600 uppercase">{c.code}</p>
+                      <p className="text-sm font-medium text-gray-400">{c.name}</p>
+                    </div>
+                    <span className={`text-[10px] px-2 py-0.5 rounded-full font-mono ${c.category === 'Core' ? 'bg-purple-500/10 text-purple-400' : 'bg-orange-500/10 text-orange-400'}`}>
+                      {c.category}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ----------------------------------------------------------------------
+// Reusable UI Components
+// ----------------------------------------------------------------------
 function NavItem({ icon, label, active = false, onClick }: { icon: React.ReactNode, label: string, active?: boolean, onClick?: () => void }) {
   return (
     <button 
@@ -472,7 +820,7 @@ function ActivityIcon() {
 // ----------------------------------------------------------------------
 // Chat Window & Input
 // ----------------------------------------------------------------------
-function ChatWindow() {
+function ChatWindow({ sessionId, onSessionCreated, googleToken }: { sessionId: string | null, onSessionCreated: (id: string) => void, googleToken: string | null }) {
   const [messages, setMessages] = useState<Message[]>([
     {
       id: '1',
@@ -484,6 +832,39 @@ function ChatWindow() {
   const [inputValue, setInputValue] = useState('');
   const [isTyping, setIsTyping] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (sessionId) {
+      loadSessionHistory(sessionId);
+    } else {
+      setMessages([
+        {
+          id: '1',
+          text: "Hello! I'm your AI teaching assistant. How can I help you with your studies today?",
+          sender: 'bot',
+          timestamp: new Date()
+        }
+      ]);
+    }
+  }, [sessionId]);
+
+  const loadSessionHistory = async (id: string) => {
+    try {
+      const token = localStorage.getItem('token');
+      const res = await fetch(`/api/chat/sessions/${id}`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setMessages(data.map((m: any) => ({
+          ...m,
+          timestamp: new Date() // Just for relative demo timing, actual time is in time string
+        })));
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -509,13 +890,28 @@ function ChatWindow() {
 
     try {
       const token = localStorage.getItem('token');
+      let calendarData = null;
+
+      if (googleToken) {
+        try {
+          const events = await fetchCalendarEvents(googleToken);
+          calendarData = Array.isArray(events.items) ? events.items.map((e: any) => `${e.summary} (${e.start?.dateTime || e.start?.date})`).join(', ') : null;
+        } catch (err) {
+          console.warn("Failed to fetch calendar for context", err);
+        }
+      }
+
       const res = await fetch('/api/chat', {
         method: 'POST',
         headers: { 
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`
         },
-        body: JSON.stringify({ message: newUserMsg.text, history: messages }),
+        body: JSON.stringify({ 
+          message: newUserMsg.text, 
+          sessionId,
+          calendarContext: calendarData
+        }),
       });
       
       const data = await res.json();
@@ -527,6 +923,9 @@ function ChatWindow() {
           sender: 'bot',
           timestamp: new Date()
         }]);
+        if (!sessionId) {
+          onSessionCreated(data.sessionId);
+        }
       } else {
         throw new Error(data.error);
       }
@@ -719,11 +1118,136 @@ function NotificationsPanel({ notifications, onClose, onMarkRead }: { notificati
 }
 
 // ----------------------------------------------------------------------
+// Schedule View
+// ----------------------------------------------------------------------
+function ScheduleView({ googleToken }: { googleToken: string | null }) {
+  const [events, setEvents] = useState<any[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (googleToken) {
+      loadEvents();
+    }
+  }, [googleToken]);
+
+  const loadEvents = async () => {
+    setIsLoading(true);
+    setError(null);
+    try {
+      const data = await fetchCalendarEvents(googleToken!);
+      setEvents(data.items || []);
+    } catch (err) {
+      console.error(err);
+      setError("Failed to sync with Google Calendar.");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleConnect = async () => {
+    try {
+      await googleSignIn();
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  if (!googleToken) {
+    return (
+      <div className="flex-1 flex flex-col items-center justify-center p-8 text-center space-y-6">
+        <div className="w-20 h-20 bg-gray-900 border border-gray-800 rounded-3xl flex items-center justify-center text-gray-600">
+          <Calendar className="w-10 h-10" />
+        </div>
+        <div className="max-w-xs">
+          <h3 className="text-xl font-bold mb-2">Sync Your Schedule</h3>
+          <p className="text-gray-400 text-sm">Connect your Google Calendar to view upcoming exams, lectures, and academic deadlines directly in Neuro.</p>
+        </div>
+        <button 
+          onClick={handleConnect}
+          className="bg-white text-gray-950 px-6 py-3 rounded-xl font-semibold hover:bg-gray-200 transition-colors flex items-center gap-2"
+        >
+          Connect Google Calendar
+        </button>
+      </div>
+    );
+  }
+
+  if (isLoading) {
+    return (
+      <div className="flex-1 flex items-center justify-center">
+        <div className="w-8 h-8 border-4 border-gray-800 border-t-cyan-500 rounded-full animate-spin"></div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex-1 overflow-y-auto p-6 md:p-8">
+      <div className="max-w-3xl mx-auto space-y-6">
+        <div className="flex items-center justify-between">
+          <h3 className="text-gray-400 text-sm font-semibold uppercase tracking-widest">Upcoming Agenda</h3>
+          <button onClick={loadEvents} className="text-xs text-cyan-400 hover:underline">Refresh</button>
+        </div>
+
+        {error && (
+          <div className="p-4 bg-red-500/10 border border-red-500/20 rounded-2xl text-red-400 text-sm">
+            {error}
+          </div>
+        )}
+
+        <div className="space-y-4">
+          {events.length > 0 ? events.map((event) => (
+            <div key={event.id} className="bg-gray-900/40 border border-gray-800 rounded-2xl p-5 hover:border-gray-700 transition-all">
+              <div className="flex justify-between items-start gap-4">
+                <div className="flex-1">
+                  <h4 className="font-bold text-gray-100">{event.summary}</h4>
+                  <div className="flex items-center gap-3 mt-2">
+                    <div className="flex items-center gap-1.5 text-xs text-gray-500">
+                      <Clock className="w-3.5 h-3.5" />
+                      {new Date(event.start?.dateTime || event.start?.date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                    </div>
+                    <div className="flex items-center gap-1.5 text-xs text-cyan-500/80 font-mono">
+                      <Plus className="w-3.5 h-3.5" />
+                      {new Date(event.start?.dateTime || event.start?.date).toLocaleDateString([], { month: 'short', day: 'numeric' })}
+                    </div>
+                  </div>
+                </div>
+                {event.location && (
+                  <div className="hidden sm:block text-right">
+                    <p className="text-[10px] text-gray-600 uppercase tracking-tighter">Location</p>
+                    <p className="text-xs text-gray-400 max-w-[120px] truncate">{event.location}</p>
+                  </div>
+                )}
+              </div>
+            </div>
+          )) : (
+            <div className="bg-gray-900/20 border border-dashed border-gray-800 rounded-3xl p-12 text-center">
+              <p className="text-gray-500 text-sm italic">No upcoming events found in your primary calendar.</p>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ----------------------------------------------------------------------
 // Student Profile View
 // ----------------------------------------------------------------------
-function StudentProfile() {
+function StudentProfile({ googleUser, googleToken, onGoogleAuth }: { googleUser: any, googleToken: string | null, onGoogleAuth?: (token: string) => void }) {
   const [profile, setProfile] = useState<any>(null);
   const [isLoading, setIsLoading] = useState(true);
+
+  const handleConnectGoogle = async () => {
+    try {
+      const result = await googleSignIn();
+      if (result && onGoogleAuth) {
+        onGoogleAuth(result.accessToken);
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
 
   useEffect(() => {
     const fetchProfile = async () => {
@@ -768,10 +1292,10 @@ function StudentProfile() {
       <div className="max-w-3xl mx-auto space-y-6">
         <div className="bg-gray-900/50 border border-gray-800 rounded-3xl p-8 flex flex-col md:flex-row items-center md:items-start gap-6">
           <div className="w-24 h-24 rounded-full bg-gradient-to-br from-cyan-500 to-emerald-500 flex items-center justify-center text-3xl font-bold text-gray-950">
-            {profile.studentId.substring(0, 3)}
+            {profile.name?.split(' ').map((n: string) => n[0]).join('') || profile.studentId?.substring(0, 2)}
           </div>
           <div className="text-center md:text-left flex-1">
-            <h2 className="text-2xl font-bold text-gray-100">Jane Doe</h2>
+            <h2 className="text-2xl font-bold text-gray-100">{profile.name}</h2>
             <p className="text-gray-400 font-mono mt-1 text-sm">{profile.studentId}</p>
             <div className="flex flex-wrap items-center justify-center md:justify-start gap-3 mt-4">
               <span className="px-3 py-1 bg-cyan-500/10 text-cyan-400 border border-cyan-500/20 rounded-full text-xs font-medium">
@@ -800,19 +1324,45 @@ function StudentProfile() {
           </div>
 
           <div className="bg-gray-900/30 border border-gray-800 rounded-3xl p-6">
-             <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-widest mb-4">Quick Stats</h3>
+             <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-widest mb-4">Integrations</h3>
              <div className="space-y-4">
-              <div className="flex justify-between items-center">
-                <p className="text-sm text-gray-400">Cumulative GPA</p>
-                <p className="font-medium text-gray-200">3.84</p>
-              </div>
-              <div className="flex justify-between items-center">
-                <p className="text-sm text-gray-400">Credits Earned</p>
-                <p className="font-medium text-gray-200">60</p>
-              </div>
+              {!googleToken ? (
+                <button 
+                  onClick={handleConnectGoogle}
+                  className="w-full bg-white text-gray-950 text-sm font-semibold rounded-xl py-2 shadow-lg hover:bg-gray-200 transition-all flex items-center justify-center gap-2"
+                >
+                  Connect Google Account
+                </button>
+              ) : (
+                <div className="flex items-center gap-3 p-3 bg-emerald-500/5 border border-emerald-500/20 rounded-xl">
+                  <div className="w-8 h-8 rounded-full bg-emerald-500 flex items-center justify-center text-gray-950 font-bold text-xs uppercase">
+                    {googleUser?.displayName?.[0] || 'G'}
+                  </div>
+                  <div>
+                    <p className="text-xs font-semibold text-emerald-400">Connected to Google</p>
+                    <p className="text-[10px] text-gray-500 truncate max-w-[150px]">{googleUser?.email}</p>
+                  </div>
+                </div>
+              )}
              </div>
           </div>
         </div>
+
+        {profile.registered_courses && profile.registered_courses.length > 0 && (
+          <div className="bg-gray-900/30 border border-gray-800 rounded-3xl p-6">
+            <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-widest mb-4">Currently Enrolled</h3>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {profile.registered_courses.map((course: string, idx: number) => (
+                <div key={idx} className="flex items-center gap-3 p-3 bg-gray-950/40 border border-gray-800/50 rounded-xl">
+                  <div className="w-8 h-8 rounded-lg bg-cyan-500/10 flex items-center justify-center text-cyan-400">
+                    <Book className="w-4 h-4" />
+                  </div>
+                  <span className="text-gray-300 text-sm font-medium">{course}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
